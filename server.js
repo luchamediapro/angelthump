@@ -16,23 +16,36 @@ async function getStream() {
 
   let m3u8 = null;
 
-  // 🔥 escuchar TODAS las requests
+  // 🔥 escuchar requests
   page.on("request", req => {
     const url = req.url();
-
     if (url.includes(".m3u8")) {
       m3u8 = url;
-      console.log("🎯 Detectado:", m3u8);
+      console.log("🎯 M3U8 detectado:", m3u8);
     }
   });
 
   try {
     await page.goto("https://player.angelthump.com/?channel=luchamedia", {
-      waitUntil: "networkidle2",
+      waitUntil: "domcontentloaded",
       timeout: 60000
     });
 
-    // 🔥 esperar más tiempo (CLAVE)
+    // 🔥 intentar reproducir video
+    await page.evaluate(() => {
+      const video = document.querySelector("video");
+      if (video) {
+        video.muted = true;
+        video.play().catch(() => {});
+      }
+    });
+
+    // 🔥 fallback: click en pantalla
+    try {
+      await page.click("body");
+    } catch (e) {}
+
+    // 🔥 esperar a que cargue el stream
     await new Promise(r => setTimeout(r, 15000));
 
   } catch (err) {
@@ -62,7 +75,7 @@ app.get("/stream", async (req, res) => {
     return res.redirect(m3u8);
   }
 
-  res.send("❌ No se detectó el m3u8");
+  res.send("❌ No se pudo obtener el stream");
 });
 
 // ROOT
