@@ -6,7 +6,6 @@ const app = express();
 let currentM3U8 = null;
 let lastUpdate = 0;
 
-// 🔥 obtener m3u8
 async function getStream() {
   const browser = await puppeteer.launch({
     headless: "new",
@@ -15,33 +14,34 @@ async function getStream() {
 
   const page = await browser.newPage();
 
-  let found = null;
-
-  page.on("request", req => {
-    const url = req.url();
-    if (url.includes(".m3u8")) {
-      found = url;
-    }
-  });
-
   try {
+    // 🔥 esperar directamente el m3u8
+    const responsePromise = page.waitForResponse(
+      res => res.url().includes(".m3u8"),
+      { timeout: 20000 }
+    );
+
     await page.goto("https://player.angelthump.com/?channel=luchamedia", {
-      waitUntil: "networkidle2",
-      timeout: 60000
+      waitUntil: "domcontentloaded"
     });
 
-    await new Promise(r => setTimeout(r, 8000));
+    const response = await responsePromise;
+    const m3u8 = response.url();
 
-  } catch (e) {
-    console.log("Error:", e.message);
+    await browser.close();
+
+    return m3u8;
+
+  } catch (err) {
+    await browser.close();
+    console.log("Error Puppeteer:", err.message);
+    return null;
   }
-
-  await browser.close();
-  return found;
 }
 
 // 🔁 STREAM
 app.get("/stream", async (req, res) => {
+
   const now = Date.now();
 
   if (currentM3U8 && (now - lastUpdate < 60000)) {
@@ -59,15 +59,14 @@ app.get("/stream", async (req, res) => {
     return res.redirect(m3u8);
   }
 
-  res.send("⚠️ No se encontró stream");
+  res.send("❌ No se pudo obtener el stream");
 });
 
-// 🔥 ROOT (ESTO SOLUCIONA TU ERROR)
+// ROOT
 app.get("/", (req, res) => {
   res.send("Servidor activo ✅ entra a /stream");
 });
 
-// 🔥 PUERTO CORRECTO PARA RENDER
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
