@@ -6,10 +6,10 @@ const app = express();
 let currentM3U8 = null;
 let lastUpdate = 0;
 
-// 🔥 función que obtiene el m3u8 real
+// 🔥 obtener m3u8
 async function getStream() {
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: "new",
     args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
@@ -17,11 +17,9 @@ async function getStream() {
 
   let found = null;
 
-  // detectar requests
   page.on("request", req => {
     const url = req.url();
-
-    if (url.includes(".m3u8") && url.includes("angelthump")) {
+    if (url.includes(".m3u8")) {
       found = url;
     }
   });
@@ -32,56 +30,46 @@ async function getStream() {
       timeout: 60000
     });
 
-    // esperar a que cargue el stream
-    await page.waitForTimeout(8000);
+    await new Promise(r => setTimeout(r, 8000));
 
-  } catch (err) {
-    console.log("Error cargando página:", err.message);
+  } catch (e) {
+    console.log("Error:", e.message);
   }
 
   await browser.close();
-
   return found;
 }
 
-// 🔁 endpoint principal
+// 🔁 STREAM
 app.get("/stream", async (req, res) => {
-
   const now = Date.now();
 
-  // usar cache (1 minuto)
   if (currentM3U8 && (now - lastUpdate < 60000)) {
     return res.redirect(currentM3U8);
   }
 
-  try {
-    const m3u8 = await getStream();
+  const m3u8 = await getStream();
 
-    if (m3u8) {
-      currentM3U8 = m3u8;
-      lastUpdate = now;
+  if (m3u8) {
+    currentM3U8 = m3u8;
+    lastUpdate = now;
 
-      console.log("✅ Nuevo m3u8:", m3u8);
+    console.log("✅ M3U8:", m3u8);
 
-      return res.redirect(m3u8);
-    } else {
-      return res.send("⚠️ No se encontró stream activo");
-    }
-
-  } catch (err) {
-    console.log("Error:", err);
-    return res.send("❌ Error al obtener stream");
+    return res.redirect(m3u8);
   }
+
+  res.send("⚠️ No se encontró stream");
 });
 
-// 🌐 ruta principal
+// 🔥 ROOT (ESTO SOLUCIONA TU ERROR)
 app.get("/", (req, res) => {
-  res.redirect("/stream");
+  res.send("Servidor activo ✅ entra a /stream");
 });
 
-// 🚀 iniciar servidor (IMPORTANTE PARA RENDER)
+// 🔥 PUERTO CORRECTO PARA RENDER
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log("🔥 Servidor corriendo en puerto", PORT);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("Servidor corriendo en puerto", PORT);
 });
