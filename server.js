@@ -1,8 +1,5 @@
-// server.js
-
 const express = require("express");
 const puppeteer = require("puppeteer");
-const fs = require("fs");
 
 const app = express();
 
@@ -20,6 +17,7 @@ async function getStream() {
 
   let found = null;
 
+  // detectar requests
   page.on("request", req => {
     const url = req.url();
 
@@ -28,11 +26,18 @@ async function getStream() {
     }
   });
 
-  await page.goto("https://player.angelthump.com/?channel=luchamedia", {
-    waitUntil: "networkidle2"
-  });
+  try {
+    await page.goto("https://player.angelthump.com/?channel=luchamedia", {
+      waitUntil: "networkidle2",
+      timeout: 60000
+    });
 
-  await page.waitForTimeout(8000);
+    // esperar a que cargue el stream
+    await page.waitForTimeout(8000);
+
+  } catch (err) {
+    console.log("Error cargando página:", err.message);
+  }
 
   await browser.close();
 
@@ -44,7 +49,7 @@ app.get("/stream", async (req, res) => {
 
   const now = Date.now();
 
-  // 🔥 usar cache 1 minuto
+  // usar cache (1 minuto)
   if (currentM3U8 && (now - lastUpdate < 60000)) {
     return res.redirect(currentM3U8);
   }
@@ -60,16 +65,23 @@ app.get("/stream", async (req, res) => {
 
       return res.redirect(m3u8);
     } else {
-      return res.send("⚠️ No se encontró stream");
+      return res.send("⚠️ No se encontró stream activo");
     }
 
   } catch (err) {
-    console.log(err);
-    return res.send("Error al obtener stream");
+    console.log("Error:", err);
+    return res.send("❌ Error al obtener stream");
   }
 });
 
-// 🚀 iniciar servidor
-app.listen(3000, () => {
-  console.log("🔥 Servidor listo en http://localhost:3000/stream");
+// 🌐 ruta principal
+app.get("/", (req, res) => {
+  res.redirect("/stream");
+});
+
+// 🚀 iniciar servidor (IMPORTANTE PARA RENDER)
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log("🔥 Servidor corriendo en puerto", PORT);
 });
