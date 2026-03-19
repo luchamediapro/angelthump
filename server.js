@@ -1,57 +1,61 @@
-async function updateStream() {
-  console.log("🔄 Buscando nuevo m3u8...");
+const express = require("express");
+const puppeteer = require("puppeteer");
 
-  try {
-    const browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    });
+const app = express();
 
-    const page = await browser.newPage();
+let cache = {
+  url: null,
+  time: 0
+};
 
-    let m3u8 = null;
+// ⏱️ duración del cache (segundos)
+const CACHE_TIME = 60;
 
-    // 🔥 interceptar RESPUESTAS (más efectivo)
-    page.on("response", res => {
-      const url = res.url();
-      if (url.includes(".m3u8")) {
-        m3u8 = url;
-        console.log("🎯 M3U8 detectado:", m3u8);
-      }
-    });
+async function getStream() {
 
-    await page.goto("https://player.angelthump.com/?channel=luchamedia", {
-      waitUntil: "networkidle2",
-      timeout: 60000
-    });
+  const now = Date.now();
 
-    // 🔥 forzar reproducción
-    await page.evaluate(() => {
-      const video = document.querySelector("video");
-      if (video) {
-        video.muted = true;
-        video.play().catch(() => {});
-      }
-    });
-
-    // 🔥 interacción extra (muy importante)
-    try {
-      await page.click("body");
-    } catch (e) {}
-
-    // 🔥 esperar más tiempo (CLAVE)
-    await new Promise(r => setTimeout(r, 20000));
-
-    await browser.close();
-
-    if (m3u8) {
-      currentM3U8 = m3u8;
-      console.log("✅ STREAM ACTUALIZADO");
-    } else {
-      console.log("❌ No se detectó m3u8 (intento fallido)");
-    }
-
-  } catch (err) {
-    console.log("Error:", err.message);
+  // 🔥 usar cache si aún sirve
+  if (cache.url && (now - cache.time) < CACHE_TIME * 1000) {
+    return cache.url;
   }
+
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
+  const page = await browser.newPage();
+
+  await page.goto("https://streamx339.cloud/global1.php?channel=foxpremium", {
+    waitUntil: "networkidle2",
+    timeout: 0
+  });
+
+  await new Promise(r => setTimeout(r, 5000));
+
+  const m3u8 = await page.evaluate(() => {
+    return window.playbackURL || null;
+  });
+
+  await browser.close();
+
+  if (!m3u8) throw new Error("No stream");
+
+  // 🔥 guardar en cache
+  cache.url = m3u8;
+  cache.time = now;
+
+  return m3u8;
 }
+
+app.get("/stream", async (req, res) => {
+  try {
+    const url = await getStream();
+    res.json({ url });
+  } catch (e) {
+    res.json({ error: "falló extractor" });
+  }
+});
+
+app.listen(3000, () => console.log("OK"));
