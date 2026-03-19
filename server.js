@@ -8,14 +8,12 @@ let cache = {
   time: 0
 };
 
-// ⏱️ duración del cache (segundos)
 const CACHE_TIME = 60;
 
 async function getStream() {
 
   const now = Date.now();
 
-  // 🔥 usar cache si aún sirve
   if (cache.url && (now - cache.time) < CACHE_TIME * 1000) {
     return cache.url;
   }
@@ -27,22 +25,31 @@ async function getStream() {
 
   const page = await browser.newPage();
 
+  let m3u8 = null;
+
+  // 🔥 INTERCEPTAR REQUESTS
+  page.on("requestfinished", async (req) => {
+    const url = req.url();
+
+    if (url.includes(".m3u8")) {
+      m3u8 = url;
+    }
+  });
+
   await page.goto("https://streamx339.cloud/global1.php?channel=foxpremium", {
     waitUntil: "networkidle2",
     timeout: 0
   });
 
-  await new Promise(r => setTimeout(r, 5000));
-
-  const m3u8 = await page.evaluate(() => {
-    return window.playbackURL || null;
-  });
+  // esperar a que cargue el stream
+  await new Promise(r => setTimeout(r, 8000));
 
   await browser.close();
 
-  if (!m3u8) throw new Error("No stream");
+  if (!m3u8) {
+    throw new Error("No se detectó m3u8");
+  }
 
-  // 🔥 guardar en cache
   cache.url = m3u8;
   cache.time = now;
 
@@ -54,8 +61,8 @@ app.get("/stream", async (req, res) => {
     const url = await getStream();
     res.json({ url });
   } catch (e) {
-    res.json({ error: "falló extractor" });
+    res.json({ error: e.message });
   }
 });
 
-app.listen(3000, () => console.log("OK"));
+app.listen(3000, () => console.log("Servidor listo"));
