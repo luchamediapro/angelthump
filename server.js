@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { exec } = require("child_process");
+const https = require("https");
 
 const app = express();
 app.use(cors());
@@ -9,7 +10,7 @@ app.get("/", (req, res) => {
 res.send("Downloader funcionando");
 });
 
-app.get("/download", (req, res) => {
+app.get("/download", async (req, res) => {
 
 const url = req.query.url;
 
@@ -20,6 +21,12 @@ error:"Falta url"
 });
 }
 
+// MEDIAFIRE DETECTOR
+if(url.includes("mediafire.com")){
+return mediafire(url,res);
+}
+
+// yt-dlp para todo lo demás
 const cmd = `yt-dlp -J "${url}"`;
 
 exec(cmd, {maxBuffer:1024*1024*10}, (err, stdout) => {
@@ -38,7 +45,7 @@ const data = JSON.parse(stdout);
 const formatos = data.formats
 .filter(f => f.url)
 .map(f => ({
-calidad: f.format_note || f.height + "p",
+calidad: f.format_note || (f.height ? f.height+"p" : f.ext),
 ext: f.ext,
 url: f.url
 }));
@@ -53,13 +60,57 @@ formatos
 }catch(e){
 res.json({
 status:false,
-error:"Error"
+error:"Error parseando"
 });
 }
 
 });
 
 });
+
+
+// MEDIAFIRE EXTRACTOR
+function mediafire(url,res){
+
+https.get(url,(response)=>{
+
+let data="";
+
+response.on("data",chunk=>data+=chunk);
+
+response.on("end",()=>{
+
+const match = data.match(/href="(https?:\/\/download[^"]+)"/);
+
+if(!match){
+return res.json({
+status:false,
+error:"Mediafire no encontrado"
+});
+}
+
+res.json({
+status:true,
+titulo:"Mediafire File",
+formatos:[
+{
+calidad:"Download",
+ext:"file",
+url:match[1]
+}
+]
+});
+
+});
+
+}).on("error",()=>{
+res.json({
+status:false,
+error:"Error Mediafire"
+});
+});
+
+}
 
 const PORT = process.env.PORT || 3000;
 
