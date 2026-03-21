@@ -1,58 +1,34 @@
 const express = require("express");
 const cors = require("cors");
-const { exec } = require("child_process");
 const https = require("https");
+const { exec } = require("child_process");
 
 const app = express();
 app.use(cors());
 
-app.get("/", (req, res) => {
+app.get("/", (req,res)=>{
 res.send("Downloader funcionando");
 });
 
-app.get("/download", async (req, res) => {
+app.get("/download", async (req,res)=>{
 
 const url = req.query.url;
 
-if(!url){
-return res.json({status:false,error:"Falta url"});
-}
+if(!url) return res.json({status:false});
 
-// MEDIAFIRE
-if(url.includes("mediafire.com")){
-return mediafire(url,res);
-}
-
-// VK / OK.ru
+// VK / OK
 if(url.includes("vk.com") || url.includes("ok.ru")){
 return vk(url,res);
 }
 
-// yt-dlp fallback universal
-const commands = [
+// fallback yt-dlp
+const cmd = `yt-dlp -J "${url}"`;
 
-`yt-dlp -J --extractor-args "youtube:player_client=android" "${url}"`,
-`yt-dlp -J --extractor-args "youtube:player_client=web" "${url}"`,
-`yt-dlp -J "${url}"`
+exec(cmd,{maxBuffer:1024*1024*20},(err,stdout)=>{
 
-];
-
-run(commands,0,res);
-
-});
-
-function run(commands,index,res){
-
-if(index >= commands.length){
-return res.json({
-status:false,
-error:"No se pudo extraer"
-});
+if(err){
+return res.json({status:false,error:"No se pudo extraer"});
 }
-
-exec(commands[index],{maxBuffer:1024*1024*20},(err,stdout)=>{
-
-if(err) return run(commands,index+1,res);
 
 try{
 
@@ -61,79 +37,65 @@ const data = JSON.parse(stdout);
 const formatos = data.formats
 .filter(f=>f.url)
 .map(f=>({
-calidad: f.format_note || (f.height?f.height+"p":f.ext),
-ext:f.ext,
-url:f.url
+calidad: f.format_note || (f.height?f.height+"p":"auto"),
+url: `/proxy?url=${encodeURIComponent(f.url)}`
 }));
 
 res.json({
 status:true,
 titulo:data.title,
-thumbnail:data.thumbnail,
 formatos
 });
 
 }catch{
-run(commands,index+1,res);
+res.json({status:false});
 }
-
-});
-
-}
-
-// MEDIAFIRE
-function mediafire(url,res){
-
-https.get(url,(response)=>{
-
-let data="";
-
-response.on("data",c=>data+=c);
-
-response.on("end",()=>{
-
-const match = data.match(/href="(https?:\/\/download[^"]+)"/);
-
-if(!match){
-return res.json({status:false,error:"Mediafire no encontrado"});
-}
-
-res.json({
-status:true,
-titulo:"Mediafire",
-formatos:[{
-calidad:"Download",
-url:match[1]
-}]
-});
 
 });
 
 });
 
+
+// PROXY STREAM
+app.get("/proxy",(req,res)=>{
+
+const url = req.query.url;
+
+https.get(url,{
+headers:{
+"User-Agent":"Mozilla/5.0",
+"Referer":"https://vk.com/"
 }
+},(r)=>{
+
+res.setHeader("content-type", r.headers["content-type"]);
+r.pipe(res);
+
+});
+
+});
 
 
-// VK / OK.ru extractor
+// VK extractor
 function vk(url,res){
 
-https.get(url,(response)=>{
+https.get(url,(r)=>{
 
 let data="";
 
-response.on("data",c=>data+=c);
+r.on("data",c=>data+=c);
 
-response.on("end",()=>{
+r.on("end",()=>{
 
-const matches = [...data.matchAll(/https?:\/\/[^"]+\.mp4[^"]*/g)];
+const matches=[...data.matchAll(/https?:\/\/[^"]+\.mp4[^"]*/g)];
 
 if(!matches.length){
-return res.json({status:false,error:"VK no encontrado"});
+return res.json({status:false});
 }
 
 const formatos = matches.map((m,i)=>({
 calidad:"VK "+(i+1),
-url:m[0]
+url:`/proxy?url=${encodeURIComponent(m[0])}`
 }));
 
 res.json({
@@ -149,4 +111,4 @@ formatos
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT,()=>console.log("Servidor OK"));
+app.listen(PORT,()=>console.log("OK"));
