@@ -2,34 +2,58 @@ const express = require("express");
 const cors = require("cors");
 const { exec } = require("child_process");
 const https = require("https");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(cors());
+
+const ytPath = path.join(__dirname, "yt-dlp");
 
 app.get("/", (req, res) => {
 res.send("Downloader funcionando");
 });
 
-app.get("/download", async (req, res) => {
+// descargar yt-dlp automáticamente
+function downloadYTDLP(cb){
+
+if(fs.existsSync(ytPath)) return cb();
+
+const file = fs.createWriteStream(ytPath);
+
+https.get(
+"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
+(res)=>{
+res.pipe(file);
+file.on("finish",()=>{
+file.close(()=>{
+fs.chmodSync(ytPath, "755");
+cb();
+});
+});
+}
+);
+
+}
+
+app.get("/download", (req, res) => {
 
 const url = req.query.url;
 
 if(!url){
-return res.json({
-status:false,
-error:"Falta url"
-});
+return res.json({status:false,error:"Falta url"});
 }
 
-// MEDIAFIRE DETECTOR
+// MEDIAFIRE
 if(url.includes("mediafire.com")){
 return mediafire(url,res);
 }
 
-// yt-dlp para todo lo demás
-const cmd = `yt-dlp -J "${url}"`;
+downloadYTDLP(()=>{
 
-exec(cmd, {maxBuffer:1024*1024*10}, (err, stdout) => {
+const cmd = `${ytPath} -J "${url}"`;
+
+exec(cmd,{maxBuffer:1024*1024*20},(err,stdout)=>{
 
 if(err){
 return res.json({
@@ -43,11 +67,11 @@ try{
 const data = JSON.parse(stdout);
 
 const formatos = data.formats
-.filter(f => f.url)
-.map(f => ({
-calidad: f.format_note || (f.height ? f.height+"p" : f.ext),
-ext: f.ext,
-url: f.url
+.filter(f=>f.url && f.ext)
+.map(f=>({
+calidad: f.format_note || (f.height?f.height+"p":f.ext),
+ext:f.ext,
+url:f.url
 }));
 
 res.json({
@@ -58,18 +82,15 @@ formatos
 });
 
 }catch(e){
-res.json({
-status:false,
-error:"Error parseando"
-});
+res.json({status:false,error:"Parse error"});
 }
 
 });
 
 });
 
+});
 
-// MEDIAFIRE EXTRACTOR
 function mediafire(url,res){
 
 https.get(url,(response)=>{
@@ -83,19 +104,15 @@ response.on("end",()=>{
 const match = data.match(/href="(https?:\/\/download[^"]+)"/);
 
 if(!match){
-return res.json({
-status:false,
-error:"Mediafire no encontrado"
-});
+return res.json({status:false,error:"Mediafire no encontrado"});
 }
 
 res.json({
 status:true,
-titulo:"Mediafire File",
+titulo:"Mediafire",
 formatos:[
 {
 calidad:"Download",
-ext:"file",
 url:match[1]
 }
 ]
@@ -103,11 +120,6 @@ url:match[1]
 
 });
 
-}).on("error",()=>{
-res.json({
-status:false,
-error:"Error Mediafire"
-});
 });
 
 }
